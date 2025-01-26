@@ -1,6 +1,6 @@
 langchain
 langchain-community
+langchain-openai
 chromadb
 gradio
-pypdf
-sentence-transformers 
+openai

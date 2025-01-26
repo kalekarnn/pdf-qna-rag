@@ -8,6 +8,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
 from langchain_community.vectorstores import Chroma
+from langchain_openai import ChatOpenAI
 
 # Initialize ChromaDB
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -15,8 +16,17 @@ chroma_client = chromadb.PersistentClient(path="./chroma_db")
 # Initialize embeddings
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# Initialize Ollama
-llm = Ollama(model="mistral")
+
+def get_llm(api_key=None):
+    """Get LLM based on API key availability"""
+    if api_key and api_key.strip():
+        return ChatOpenAI(
+            model="gpt-3.5-turbo",
+            openai_api_key=api_key,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+    return Ollama(model="llama3.1")
 
 
 def process_pdf(pdf_file):
@@ -50,10 +60,13 @@ def process_pdf(pdf_file):
     return "PDF processed successfully!"
 
 
-def query_document(question):
+def query_document(question, api_key=""):
     """Query the document using RAG"""
     # Load the persisted vector store
     vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+
+    # Get appropriate LLM
+    llm = get_llm(api_key)
 
     # Create retrieval chain
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
@@ -63,7 +76,6 @@ def query_document(question):
 
     # Get response
     response = qa_chain({"query": question})
-
     return response["result"]
 
 
@@ -72,10 +84,15 @@ with gr.Blocks() as demo:
     gr.Markdown("# PDF Question Answering with RAG")
 
     with gr.Row():
-        # Left column for PDF upload
+        # Left column for PDF upload and API key
         with gr.Column(scale=1):
             gr.Markdown("### Upload PDF")
             pdf_input = gr.File(label="Upload PDF", file_types=[".pdf"], type="binary")
+            api_key = gr.Textbox(
+                label="OpenAI API Key",
+                placeholder="Enter to use GPT-3.5, leave empty for local Ollama",
+                type="password",
+            )
             upload_button = gr.Button("Process PDF")
             pdf_output = gr.Textbox(label="Status")
             upload_button.click(process_pdf, inputs=[pdf_input], outputs=[pdf_output])
@@ -87,7 +104,9 @@ with gr.Blocks() as demo:
             question_button = gr.Button("Get Answer")
             answer_output = gr.Textbox(label="Answer", lines=5)
             question_button.click(
-                query_document, inputs=[question_input], outputs=[answer_output]
+                query_document,
+                inputs=[question_input, api_key],
+                outputs=[answer_output],
             )
 
 if __name__ == "__main__":
