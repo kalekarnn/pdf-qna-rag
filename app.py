@@ -1,0 +1,94 @@
+import tempfile
+
+import chromadb
+import gradio as gr
+from langchain.chains import RetrievalQA
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import Ollama
+from langchain_community.vectorstores import Chroma
+
+# Initialize ChromaDB
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+
+# Initialize embeddings
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+# Initialize Ollama
+llm = Ollama(model="mistral")
+
+
+def process_pdf(pdf_file):
+    """Process PDF and store in ChromaDB"""
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        if hasattr(pdf_file, "name"):
+            # If it's a file path
+            with open(pdf_file.name, "rb") as f:
+                tmp_file.write(f.read())
+        else:
+            # If it's the file content directly
+            tmp_file.write(pdf_file)
+        pdf_path = tmp_file.name
+
+    # Load PDF
+    loader = PyPDFLoader(pdf_path)
+    documents = loader.load()
+
+    # Split text into chunks
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000, chunk_overlap=200, length_function=len
+    )
+    texts = text_splitter.split_documents(documents)
+
+    # Create vector store
+    vectorstore = Chroma.from_documents(
+        documents=texts, embedding=embeddings, persist_directory="./chroma_db"
+    )
+
+    return "PDF processed successfully!"
+
+
+def query_document(question):
+    """Query the document using RAG"""
+    # Load the persisted vector store
+    vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+
+    # Create retrieval chain
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm, chain_type="stuff", retriever=retriever, return_source_documents=True
+    )
+
+    # Get response
+    response = qa_chain({"query": question})
+
+    return response["result"]
+
+
+# Create Gradio interface
+with gr.Blocks() as demo:
+    gr.Markdown("# PDF Question Answering with RAG")
+
+    with gr.Row():
+        # Left column for PDF upload
+        with gr.Column(scale=1):
+            gr.Markdown("### Upload PDF")
+            pdf_input = gr.File(label="Upload PDF", file_types=[".pdf"], type="binary")
+            upload_button = gr.Button("Process PDF")
+            pdf_output = gr.Textbox(label="Status")
+            upload_button.click(process_pdf, inputs=[pdf_input], outputs=[pdf_output])
+
+        # Right column for Q&A
+        with gr.Column(scale=1):
+            gr.Markdown("### Ask Questions")
+            question_input = gr.Textbox(label="Ask a question about the document")
+            question_button = gr.Button("Get Answer")
+            answer_output = gr.Textbox(label="Answer", lines=5)
+            question_button.click(
+                query_document, inputs=[question_input], outputs=[answer_output]
+            )
+
+if __name__ == "__main__":
+    demo.launch()
