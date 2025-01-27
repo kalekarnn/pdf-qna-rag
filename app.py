@@ -1,3 +1,4 @@
+import re
 import tempfile
 
 import chromadb
@@ -26,7 +27,8 @@ def get_llm(api_key=None):
             temperature=0.7,
             max_tokens=1024,
         )
-    return Ollama(model="llama3.1")
+    #return Ollama(model="llama3.1")
+    return Ollama(model="deepseek-r1:8b")
 
 
 def process_pdf(pdf_file):
@@ -76,7 +78,19 @@ def query_document(question, api_key=""):
 
     # Get response
     response = qa_chain({"query": question})
-    return response["result"]
+
+    result = response["result"]
+    cleaned_result = clean_output(result)
+    print(cleaned_result)
+
+    return cleaned_result
+
+
+def clean_output(result):
+    # clean for deepseek-r1:8b
+    result = re.sub(r"\s+", " ", result)
+    cleaned_result = re.sub(r"<think>.*?</think>", "", result)
+    return cleaned_result
 
 
 # Create Gradio interface
